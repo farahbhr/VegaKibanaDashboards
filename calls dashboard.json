@@ -1,0 +1,302 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v5.json",
+  "title": "Sum of Active Calls on the different servers",
+  "width": "container",
+  "height": "container",
+  "padding":20,
+  "autosize": {
+    "type": "fit", 
+    "resize": true,
+     "contains": "padding"
+  },
+
+  "data": [
+    {
+      "name": "metrics",
+      "url": {
+        "%context%": true,
+        "%timefield%": "@timestamp",
+
+        "index": "metricbeat-*",
+        "body": {
+          "aggs": {
+            "group_by_time": {
+              "date_histogram": {
+                "field": "@timestamp",
+                "fixed_interval": "30s"
+              },
+              "aggs": {
+                "group_by_server": {
+                  "terms": {
+                    "field": "host.name.keyword"
+                  },
+                  "aggs": {
+                    "max_value_per_server": {
+                      "max": {
+                        "field": "windows.perfmon.metrics.calls"
+                      }
+                    }
+                  }
+                },
+                "sum_max_values": {
+                  "sum_bucket": {
+                    "buckets_path": "group_by_server>max_value_per_server"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "format": {
+        "property": "aggregations.group_by_time.buckets"
+      },
+      "transform": [
+        {
+          "type": "formula",
+          "as": "date",
+          "expr": "toDate(datum.key)"
+        },
+        {
+          "type": "formula",
+          "as": "value",
+          "expr": "datum.sum_max_values.value"
+        }
+      ]
+    }
+  ],
+
+  "scales": [
+    {
+      "name": "x",
+      "type": "time",
+      "range": [0, { "signal": "width" }],
+      "padding": 0.05,
+      "domain": {"data": "metrics", "field": "date"}
+    },
+    {
+      "name": "y",
+      "type": "linear",
+      "range": [{ "signal": "height" }, 0],
+      "padding": 0.05,
+      "nice": false,
+      "zero": true,
+      "domain": {"data": "metrics", "field": "value"}
+      
+    }
+  ],
+
+  "axes": [
+    {
+      "orient": "bottom",
+      "scale": "x",
+      "title": "Time"
+    },
+    {
+      "orient": "left",
+      "scale": "y",
+      "title": "Sum of Active Calls",
+      #to show only integer values on y axis:
+      "tickMinStep": 1
+    }
+  ],
+  
+  "tooltip": [{
+            "field": "date",
+            "title": "Date"
+          }, 
+          {
+            "field": "value",
+            "title": "Active Calls"
+          }],
+          
+  "marks": [
+    {
+      "type": "area",
+      "from": {"data": "metrics"},
+      "encode": {
+        "enter": {
+          "x": {"scale": "x", "field": "date"},
+          "y": {"scale": "y", "field": "value"},
+          "y2": {"scale": "y", "value": 0},
+          "fill": {"value": "steelblue"}
+        },
+        "update": {
+          "tooltip": {
+            "signal": "{ 'Date & Time': timeFormat(datum.date, '%x %X'), 'Active Calls': datum.value }"
+          },
+          "x": {"scale": "x", "field": "key"},
+          "y": {"scale": "y", "field": "value"},
+          "stroke": {"value": "#3288bd"},
+          "fillOpacity": {"value": 0.5},
+          "strokeWidth": {"value": 2}
+        },
+        "hover": {
+          "fillOpacity": {"value": 0.25}
+        }
+      }
+    },
+    {
+      "type": "rule",
+      "interactive": false,
+      "encode": {
+        "update": {
+          "y": {"value": 0},
+          "y2": {"signal": "height"},
+          "stroke": {"value": "red"},
+          
+          "x": {"signal": "max(currentX,0)"},
+          "defined": {"signal": "currentX > 0"}
+        }
+      }
+    },
+    {
+      "type": "symbol",
+      "from": {"data": "metrics"},
+      "encode": {
+        "enter": {
+          "x": {"scale": "x", "field": "date"},
+          "y": {"scale": "y", "field": "value"},
+          "size": {"value": 2},
+          "fill": {"value": "black"},
+          "fillOpacity": {"value": 0.5},
+          "stroke": {"value": "#3288bd"},
+          "strokeWidth": {"value": 2}
+        },
+        "update": {
+          "size": {"signal": "datum === hover ? 300 : 2"}
+        }
+      }
+    },
+    {
+      "type": "rect",
+      "name": "selectedRect",
+      "encode": {
+        "update": {
+          "height": {"signal": "height"},
+          "fill": {"value": "#333"},
+          "fillOpacity": {"value": 0.2},
+          "x": {"signal": "selected[0]"},
+          "x2": {"signal": "selected[1]"},
+          "defined": {"signal": "selected[0] !== selected[1]"}
+        }
+      }
+    }
+  ],
+  "signals": [
+    {
+      "name": "width",
+      "init": "containerSize()[0]",
+      "on": [{ "events": "window:resize", "update": "containerSize()[0]" }]
+    },
+    {
+      "name": "height",
+      "init": "containerSize()[1]",
+      "on": [{ "events": "window:resize", "update": "containerSize()[1]" }]
+
+    },
+    {
+      "name": "currentX",
+      "value": -1,
+      "on": [{
+        "events": {
+          "type": "mousemove",
+          "source": "view"
+        },
+        "update": "clamp(x(), 0, width)"
+      }, 
+      {
+        "events": {
+          "type": "mouseout",
+          "source": "view"
+        },
+        "update": "-1"
+      }]
+    },
+    {
+      "name": "hover",
+      "value": null,
+      "on": [
+        {"events": "mousemove", "update": "datum"},
+        {"events": "mouseout", "update": "null"}
+      ]
+    },
+    {
+      "name": "currentY",
+      "from": {"data": "metrics"},
+      "value": "0",
+      "on": [{
+        "events": {
+          "type": "mousemove",
+          "source": "view"
+        },
+        "update": "invert('y', scale('y', datum))"
+      }, 
+      { 
+        "events": {
+          "type": "mouseout",
+          "source": "view"
+        },
+        "update": "0"
+      }]
+    },
+    {
+      "name": "selected",
+      "value": [0, 0],
+      "on": [{
+        "events": {
+          "type": "mousedown",
+          "source": "view"
+        },
+        "update": "[clamp(x(), 0, width), clamp(x(), 0, width)]"
+      }, {
+        "events": {
+          "type": "mousemove",
+          "source": "window",
+          "consume": true,
+          "between": [{
+            "type": "mousedown",
+            "source": "view"
+          }, {
+            "merge": [{
+              "type": "mouseup",
+              "source": "window"
+            }, {
+              "type": "keydown",
+              "source": "window",
+              "filter": "event.key === 'Escape'"
+            }]
+          }]
+        },
+        "update": "[selected[0], clamp(x(), 0, width)]"
+      }, {
+        "events": {
+          "type": "keydown",
+          "source": "window",
+          "filter": "event.key === 'Escape'"
+        },
+        "update": "[0, 0]"
+      }]
+    }
+    {
+      "name": "applyTimeFilter",
+      "value": null,
+      "on": [{
+        "events": {
+          "type": "mouseup",
+          "source": "view"
+        },
+        "update": '''selected[0] !== selected[1] ? kibanaSetTimeFilter(
+               invert('x',selected[0]),
+               invert('x',selected[1])) : null'''
+      }]
+    }
+    
+  ],
+  "config": {
+    "axis": {
+      "grid": true,
+      "gridColor": "#3b3b3b"
+    }
+  }
+}
